@@ -6,6 +6,9 @@
 '''
 Author Eric Chan 2021
 
+users should edit 
+UPACK_path='/Users/echanj/Work/upack/scripts/' on line 545
+so the script can see the UPACK binaries 
 
 framework for working with co-crystals as rigid molecules 
 it will bypass the need to create the cor.001 on the fly from a Z-matrix description 
@@ -209,14 +212,11 @@ from shutil import move,rmtree
 import multiprocessing
 import time
 
-# import openbabel
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# import scipy
-# import matplotlib
 
 
 def get_shifts(eu,co,Tf,Ks):
@@ -236,7 +236,6 @@ def get_shifts(eu,co,Tf,Ks):
  
  scw0=1.0
  if Pacc<0.5 : 
- # print ("uniform scaling of input shifts for the given temperature") 
   while np.all([Pacc<0.5,scw0>0,eu>0.51,co>0.00001])  : 
     scw0-=0.001
     eu=eu*scw0 
@@ -244,13 +243,10 @@ def get_shifts(eu,co,Tf,Ks):
     XIN= np.array([eu, co, Tf, Ks, eu*co, eu*Tf, eu*Ks, co*Tf, co*Ks, Tf*Ks])
     Ediff_pred = w0 + np.dot(W,XIN)   
     Pacc=np.exp(-Ediff_pred/Tf)
-    # print (scw0,eu,co,Ediff_pred, Pacc)
     
- # print ("scaling completed") 
   print ("scaled eul,com shifts, predicted Ediff and Pacc  for T=%.1f : %.6f %.6f %.6f %.6f "%(Tf, eu, co, Ediff_pred, Pacc))
 
  elif Pacc>0.5 : 
- # print ("uniform scaling of input shifts for the given temperature") 
   while np.all([Pacc>0.5])  : 
     scw0+=0.001
     eu=eu*scw0 
@@ -258,9 +254,7 @@ def get_shifts(eu,co,Tf,Ks):
     XIN= np.array([eu, co, Tf, Ks, eu*co, eu*Tf, eu*Ks, co*Tf, co*Ks, Tf*Ks])
     Ediff_pred = w0 + np.dot(W,XIN)   
     Pacc=np.exp(-Ediff_pred/Tf)
-    # print (scw0,eu,co,Ediff_pred, Pacc)
     
- # print ("scaling completed") 
   print ("scaled eul,com shifts, predicted Ediff and Pacc  for T=%.1f : %.6f %.6f %.6f %.6f "%(Tf, eu, co, Ediff_pred, Pacc))
  else: # Pacc==0.5
   print ("scaled eul,com shifts, predicted Ediff and Pacc  for T=%.1f : %.6f %.6f %.6f %.6f "%(Tf, eu, co, Ediff_pred, Pacc))
@@ -302,28 +296,8 @@ def metabias(eulvar_hills,comvar_hills,eulfix,comfix,zpr,nmpg):
 def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eulvar_hills,comvar_hills):
 
  isFlex = MC_other[3]
- # if isFlex==0:
- # ntor=len(dihed) # number of torsions per molecue
- # dihed=(np.zeros((zpr,ntor))+dihed).reshape(1,-1)[0]  
- #else: 
- #ntor= len(dihed)/zpr 
-
-#  dihed=dihed+di_offset # convert to upack setting
-#  if doing rigid body the torsion bias from each step does not differ between structures
-#  we can keep track of the angles each step for metaV
- 
-# print "in read pack files"
-# check where variables are random and have no effect on bias
-# eulerIsRand=np.where(MC_invar[0][:]>999)
-# comIsRand=np.where(MC_invar[2][:]>999)
  eulerIsRand=np.where(eulvar>999)
  comIsRand=np.where(comvar>999)
-# torIsRand=np.where(dihed>999)
-# torIsFix=np.where(dihed<-999)
- # above also fixs up for the case of random or fixed Torsions
- #  this is so the bias will not be affected by magnitude of deviation from fixed input values. 
- # i.e.  assume fixed (eg. dimeric H-bond ) interactions are less likely to affect chocie of minimum    
-
  eulfix=np.array(eulvar) # (MC_invar[0][:]).astype(float)
  comfix=np.array(comvar) # (MC_invar[2][:]).astype(float)
  
@@ -335,21 +309,12 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
  else: 
   metaV=0.0
 
-# out12name=wdir_path+'out12'
-#with open(out12name) as file:
-#       for line in file:
-#         if re.search('Dihedrals from COR file', line):
-#          line = line.replace("\n", " ")   # get rid of newline 
-#          uptorfix=np.array(line.split()[-ntor:]).astype(float) # the value of dihed that corresponds to COR.001 file
-#          break
- 
  nR=MC_other[0]
  eng=[]     
  Ecv_com2=[]
  Ecv_eul2=[]
  Centers=[]                     # each column is molecule
  Eulers=[]
- # Dihedrals=[]
 
  packname=wdir_path+'ebias.17'
  fhpack = open(packname,'r')
@@ -363,9 +328,6 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
  
  cnl=zpr+(nmpg-1)  # differnt structure entry every cnl lines 
  moldat=[]
- # tordat=[]
- #for z in range(zpr): 
- # tordat.append(cvdat[(nmpg*zpr)+z::cnl]) 
  for z in range(zpr*nmpg): 
   moldat.append(cvdat[z::cnl]) 
  
@@ -376,55 +338,15 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
   Ecv_eul2.append(float(dat[n].split()[3]))
   Centers.append([np.array(moldat[z][n].split()[3:6]).astype(float) for z in range(zpr*nmpg)]) 
   Eulers.append([np.array(moldat[z][n].split()[7:10]).astype(float) for z in range(zpr*nmpg)]) 
-  # Dihedrals.append([tordat[z][n].split()[-ntor:] for z in range(zpr)]) 
 
  eng=np.array(eng).astype(float)      
  Ecv_com2=np.array(Ecv_com2).astype(float)      
  Ecv_eul2=np.array(Ecv_eul2).astype(float)      
  Centers=np.reshape(Centers,(nR,nmpg*zpr*3))
  Eulers=np.reshape(Eulers,(nR,nmpg*zpr*3))
- # Dihedrals=np.reshape(Dihedrals,(nR,ntor*zpr)).astype(float)
 
-# print eng
-# print Ecv_com2
-# print Ecv_eul2
-# print Centers
-# print Eulers
-# print Dihedrals
- 
-
-# v5.0 modify this so that the choice of minE now takes into acount the biasing  
-
-# Bias1 -  reletive to unbiased minE configuration as refernece - currently disabled for v5.0 
-
-# COMfix=np.zeros((nR,zpr*3))+Centers[idx_minE]  # this is the V2 modification, we no longer use  MC_invar
-# EULfix=np.zeros((nR,zpr*3))+Eulers[idx_minE]
-
-# TORfix=np.zeros((nR,zpr*ntor))+np.vstack([uptorfix for i in range(zpr)]).flatten()
-# Ecv_com=Kbias[0]*0.5*(Centers-COMfix)**2.0     
-# Ecv_eul=Kbias[1]*0.5*(1.0-np.cos(np.radians(Eulers-EULfix)))   
-# Ecv_tor=Kbias[2]*0.5*(1.0-np.cos(np.radians(Dihedrals-TORfix)))  
-# for idx in comIsRand: Ecv_com[:,idx]=0
-# for idx in eulerIsRand: Ecv_eul[:,idx]=0     # if variable >999 i.e. random sampling then set bias component to zero  
-# Ecv_com=np.sum(Ecv_com,axis=1)
-# Ecv_eul=np.sum(Ecv_eul,axis=1)
-# Ecv_tor=np.sum(Ecv_tor,axis=1)
-
-# Bias2 - reletive to Extended Variable configuration
-
-# COMfix2=np.zeros((nR,nmpg*zpr*3))+comfix   # this is from original version. takes into account the test variable
-# EULfix2=np.zeros((nR,nmpg*zpr*3))+eulfix
-# TORfix2=np.zeros((nR,ntor*zpr))+dihed
-# Ecv_com2=Kbias[0]*0.5*(Centers-COMfix2)**2.0     
-# Ecv_eul2=Kbias[1]*0.5*(1.0-np.cos(np.radians(Eulers-EULfix2)))   
-# Ecv_tor2=Kbias[2]*0.5*(1.0-np.cos(np.radians(Dihedrals-TORfix2)))  
  if np.any(comIsRand==0): Ecv_com2==np.zeros(nR)
  if np.any(eulerIsRand==0): Ecv_eul2==np.zeros(nR)     # if variable >999 i.e. random sampling then set bias component to zero  
-# for idx in torIsRand: Ecv_tor2[:,idx]=0
-# for idx in torIsFix: Ecv_tor2[:,idx]=0
-# Ecv_com2=np.sum(Ecv_com2,axis=1)
-# Ecv_eul2=np.sum(Ecv_eul2,axis=1)
-# Ecv_tor2=np.sum(Ecv_tor2,axis=1)
 
  if isFlex==0:
   ubias=Ecv_com2+Ecv_eul2  # dont include tor for flex=0
@@ -436,25 +358,12 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
  idx_minE=np.where(engR==np.min(engR))[0][0] # figure out which structure had minE in the distrib of biased energies.
  minE=eng[idx_minE]# this is the unbiased minE that corresponds with min(eng)
  
-# Bias3 - CV's now reletive to just MinE config only - single points 
-
-# Ecv_com3=Kbias[0]*0.5*np.array(Centers[idx_minE]-comfix)**2.0     
-# Ecv_eul3=Kbias[1]*0.5*(1.0-np.cos(np.radians(np.array(Eulers[idx_minE]-eulfix))))   
  Ecv_com3=Ecv_com2[idx_minE]
  Ecv_eul3=Ecv_eul2[idx_minE]
-# Ecv_com3=np.sum(Ecv_com3)
-# Ecv_eul3=np.sum(Ecv_eul3)
-# Ecv_tor3=Ecv_tor2[idx_minE]   
 
-# To obtain biasing energy we will use harmonic spring for centers 
-# and harmonic cosine term for eulers and dihedrals  
 
  eng_fix=eng[eng<0.0]  # make sure energies below a cutoff  (default zero)
 
-# ave_bias = np.mean(Ecv_com+Ecv_eul+Ecv_tor)  # with torsion 
-# ubias=Ecv_com+Ecv_eul+Ecv_com2+Ecv_eul2  #  # ths is where we control which parts contribute towards the bias
-# ubias=Ecv_com2+Ecv_eul2  #  Use the original bias which tethers to the CV
-# ubias_fix=ubias[eng<0.0] 
  if isFlex==0:
   ubias_fix=Ecv_com3+Ecv_eul3 # the values here are only based on the minE structure which should have minE < 0 
   cfg_dihed=dihed
@@ -462,7 +371,6 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
   ubias_fix=Ecv_com3+Ecv_eul3+Ecv_tor3
   cfg_dihed=Dihedrals[idx_minE]
 
-# print Ecv_com3,Ecv_eul3,Ecv_tor3,ubias_fix
 
  if len(eng_fix)==0:
   ave_eng,var_eng,ave_bias=0.0,0.0,0.0 # this should reject the move if we didnt sample anything significnt
@@ -747,8 +655,8 @@ ntrymax 10000
 
 # make a backup of the pack.10 and pack.19 for that step 
 # dont do this for FEP calcs 
-# copyfile(wdir_path+'pack.10',packfile_path+'bath_%s_cyc_%i_step_%i.pack.10'%(label2,mccyc,mcstep))
-# copyfile(wdir_path+'pack.19',packfile_path+'bath_%s_cyc_%i_step_%i.pack.19'%(label2,mccyc,mcstep))
+ copyfile(wdir_path+'pack.10',packfile_path+'bath_%s_cyc_%i_step_%i.pack.10'%(label2,mccyc,mcstep))
+ copyfile(wdir_path+'pack.19',packfile_path+'bath_%s_cyc_%i_step_%i.pack.19'%(label2,mccyc,mcstep))
 
 # convert zp_dihed back into original coordinates only for isFlex=0
  if isFlex == 0: 
@@ -966,10 +874,6 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
  #   escal,cscal = get_shifts(escal0,cscal0,Kb*Tinit[bath],Kbias[0]) 
     escal,cscal = escal0,cscal0 # bypassing scale function
  
-    # just duplicate of earlier code - ineffiecnt but works can change later !!! 
-#    eul_shift[bath,:]=(np.zeros((len(eul_init)))+np.round(escal)).astype(float)  # this should be a float -see run_upack_search()
-#    com_shift[bath,:]=(np.zeros((len(com_init)))+cscal).astype(float)  
-#    Tor_shift[bath,:]=(np.zeros((len(Tor_fix)))+tscal0).astype(float)    # not implemented yet for rigid body  
 
     eul_shift[bath,:]=eul_shift[bath,:]+np.round(escal)  # this should be a float -see run_upack_search()
     com_shift[bath,:]=com_shift[bath,:]+cscal
