@@ -1,19 +1,28 @@
-#!/usr/bin/python2.7
-
-# run by typing
-# python regex.py result_t1.out 
+#!/usr/bin/env python
 
 '''
 Author Eric Chan 2021
 
-users should edit 
-UPACK_path='/Users/echanj/Work/upack/scripts/' on line 545
-so the script can see the UPACK binaries 
 
-framework for working with co-crystals as rigid molecules 
+framework for working with co-crystals and rigid molecules 
 it will bypass the need to create the cor.001 on the fly from a Z-matrix description 
 
- latest development version  
+ local dev version  
+
+   - NOV 2023 - changing input so that each bath reads in a specified shift and spring con  
+
+   - in version 8 com_shift eul_shift and kbias  are now arrays with an entry for each bath
+   - they can be updated on-the-fly
+
+
+  v8.0 
+  
+   - this version built to run via notebook style and then update the repo
+     adapted directly from run_UPACK_PT_coumarin_module_v8_rigid.py which was the local version 
+     running using python 2.7 
+
+   - plan was to test finite difference bit to update shifts 
+     but for now best to just fix shifts and temperatures as input variables 
 
    - for FEP shifts will be fixed 
      modifying code accordingly 
@@ -40,6 +49,9 @@ it will bypass the need to create the cor.001 on the fly from a Z-matrix descrip
            reasoning is that integer values for the euler shift are used as input to UPACK
            should change this in a later c++ verison if it ever happens. 
 
+
+   - when doing random search needed to change output comvar formating since too many decimal places
+     added in condintional statement for this  
 
   v7.2 - initializing bath at a proper minimum causes non-ergodic behavior for strong coupling 
          adding option to accept inital shift otherwise we would be relying too much on acc2 
@@ -212,11 +224,14 @@ from shutil import move,rmtree
 import multiprocessing
 import time
 
+# import openbabel
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+# import scipy
+# import matplotlib
 
 
 def get_shifts(eu,co,Tf,Ks):
@@ -236,6 +251,7 @@ def get_shifts(eu,co,Tf,Ks):
  
  scw0=1.0
  if Pacc<0.5 : 
+ # print ("uniform scaling of input shifts for the given temperature") 
   while np.all([Pacc<0.5,scw0>0,eu>0.51,co>0.00001])  : 
     scw0-=0.001
     eu=eu*scw0 
@@ -243,10 +259,13 @@ def get_shifts(eu,co,Tf,Ks):
     XIN= np.array([eu, co, Tf, Ks, eu*co, eu*Tf, eu*Ks, co*Tf, co*Ks, Tf*Ks])
     Ediff_pred = w0 + np.dot(W,XIN)   
     Pacc=np.exp(-Ediff_pred/Tf)
+    # print (scw0,eu,co,Ediff_pred, Pacc)
     
+ # print ("scaling completed") 
   print ("scaled eul,com shifts, predicted Ediff and Pacc  for T=%.1f : %.6f %.6f %.6f %.6f "%(Tf, eu, co, Ediff_pred, Pacc))
 
  elif Pacc>0.5 : 
+ # print ("uniform scaling of input shifts for the given temperature") 
   while np.all([Pacc>0.5])  : 
     scw0+=0.001
     eu=eu*scw0 
@@ -254,7 +273,9 @@ def get_shifts(eu,co,Tf,Ks):
     XIN= np.array([eu, co, Tf, Ks, eu*co, eu*Tf, eu*Ks, co*Tf, co*Ks, Tf*Ks])
     Ediff_pred = w0 + np.dot(W,XIN)   
     Pacc=np.exp(-Ediff_pred/Tf)
+    # print (scw0,eu,co,Ediff_pred, Pacc)
     
+ # print ("scaling completed") 
   print ("scaled eul,com shifts, predicted Ediff and Pacc  for T=%.1f : %.6f %.6f %.6f %.6f "%(Tf, eu, co, Ediff_pred, Pacc))
  else: # Pacc==0.5
   print ("scaled eul,com shifts, predicted Ediff and Pacc  for T=%.1f : %.6f %.6f %.6f %.6f "%(Tf, eu, co, Ediff_pred, Pacc))
@@ -281,7 +302,7 @@ def metabias(eulvar_hills,comvar_hills,eulfix,comfix,zpr,nmpg):
  nst,nbs,nvar = np.shape(eulvar_hills)  # should be current number of steps, baths, vars 
 
  if not nvar==nmpg*zpr*3: 
-  print "Error number of euler variables %i incorrect for this Z'. should be %i  " %(nvar,nmpg*3*zpr)
+  print ("Error number of euler variables %i incorrect for this Z'. should be %i  " %(nvar,nmpg*3*zpr))
   exit()
 
  all_hills=np.c_[np.array(eulvar_hills).reshape((-1,3*zpr*nmpg)),np.array(comvar_hills).reshape((-1,3*zpr*nmpg))]
@@ -296,8 +317,28 @@ def metabias(eulvar_hills,comvar_hills,eulfix,comfix,zpr,nmpg):
 def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eulvar_hills,comvar_hills):
 
  isFlex = MC_other[3]
+ # if isFlex==0:
+ # ntor=len(dihed) # number of torsions per molecue
+ # dihed=(np.zeros((zpr,ntor))+dihed).reshape(1,-1)[0]  
+ #else: 
+ #ntor= len(dihed)/zpr 
+
+#  dihed=dihed+di_offset # convert to upack setting
+#  if doing rigid body the torsion bias from each step does not differ between structures
+#  we can keep track of the angles each step for metaV
+ 
+# print "in read pack files"
+# check where variables are random and have no effect on bias
+# eulerIsRand=np.where(MC_invar[0][:]>999)
+# comIsRand=np.where(MC_invar[2][:]>999)
  eulerIsRand=np.where(eulvar>999)
  comIsRand=np.where(comvar>999)
+# torIsRand=np.where(dihed>999)
+# torIsFix=np.where(dihed<-999)
+ # above also fixs up for the case of random or fixed Torsions
+ #  this is so the bias will not be affected by magnitude of deviation from fixed input values. 
+ # i.e.  assume fixed (eg. dimeric H-bond ) interactions are less likely to affect chocie of minimum    
+
  eulfix=np.array(eulvar) # (MC_invar[0][:]).astype(float)
  comfix=np.array(comvar) # (MC_invar[2][:]).astype(float)
  
@@ -309,12 +350,21 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
  else: 
   metaV=0.0
 
+# out12name=wdir_path+'out12'
+#with open(out12name) as file:
+#       for line in file:
+#         if re.search('Dihedrals from COR file', line):
+#          line = line.replace("\n", " ")   # get rid of newline 
+#          uptorfix=np.array(line.split()[-ntor:]).astype(float) # the value of dihed that corresponds to COR.001 file
+#          break
+ 
  nR=MC_other[0]
  eng=[]     
  Ecv_com2=[]
  Ecv_eul2=[]
  Centers=[]                     # each column is molecule
  Eulers=[]
+ # Dihedrals=[]
 
  packname=wdir_path+'ebias.17'
  fhpack = open(packname,'r')
@@ -328,6 +378,9 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
  
  cnl=zpr+(nmpg-1)  # differnt structure entry every cnl lines 
  moldat=[]
+ # tordat=[]
+ #for z in range(zpr): 
+ # tordat.append(cvdat[(nmpg*zpr)+z::cnl]) 
  for z in range(zpr*nmpg): 
   moldat.append(cvdat[z::cnl]) 
  
@@ -338,15 +391,55 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
   Ecv_eul2.append(float(dat[n].split()[3]))
   Centers.append([np.array(moldat[z][n].split()[3:6]).astype(float) for z in range(zpr*nmpg)]) 
   Eulers.append([np.array(moldat[z][n].split()[7:10]).astype(float) for z in range(zpr*nmpg)]) 
+  # Dihedrals.append([tordat[z][n].split()[-ntor:] for z in range(zpr)]) 
 
  eng=np.array(eng).astype(float)      
  Ecv_com2=np.array(Ecv_com2).astype(float)      
  Ecv_eul2=np.array(Ecv_eul2).astype(float)      
  Centers=np.reshape(Centers,(nR,nmpg*zpr*3))
  Eulers=np.reshape(Eulers,(nR,nmpg*zpr*3))
+ # Dihedrals=np.reshape(Dihedrals,(nR,ntor*zpr)).astype(float)
 
+# print eng
+# print Ecv_com2
+# print Ecv_eul2
+# print Centers
+# print Eulers
+# print Dihedrals
+ 
+
+# v5.0 modify this so that the choice of minE now takes into acount the biasing  
+
+# Bias1 -  reletive to unbiased minE configuration as refernece - currently disabled for v5.0 
+
+# COMfix=np.zeros((nR,zpr*3))+Centers[idx_minE]  # this is the V2 modification, we no longer use  MC_invar
+# EULfix=np.zeros((nR,zpr*3))+Eulers[idx_minE]
+
+# TORfix=np.zeros((nR,zpr*ntor))+np.vstack([uptorfix for i in range(zpr)]).flatten()
+# Ecv_com=Kbias[0]*0.5*(Centers-COMfix)**2.0     
+# Ecv_eul=Kbias[1]*0.5*(1.0-np.cos(np.radians(Eulers-EULfix)))   
+# Ecv_tor=Kbias[2]*0.5*(1.0-np.cos(np.radians(Dihedrals-TORfix)))  
+# for idx in comIsRand: Ecv_com[:,idx]=0
+# for idx in eulerIsRand: Ecv_eul[:,idx]=0     # if variable >999 i.e. random sampling then set bias component to zero  
+# Ecv_com=np.sum(Ecv_com,axis=1)
+# Ecv_eul=np.sum(Ecv_eul,axis=1)
+# Ecv_tor=np.sum(Ecv_tor,axis=1)
+
+# Bias2 - reletive to Extended Variable configuration
+
+# COMfix2=np.zeros((nR,nmpg*zpr*3))+comfix   # this is from original version. takes into account the test variable
+# EULfix2=np.zeros((nR,nmpg*zpr*3))+eulfix
+# TORfix2=np.zeros((nR,ntor*zpr))+dihed
+# Ecv_com2=Kbias[0]*0.5*(Centers-COMfix2)**2.0     
+# Ecv_eul2=Kbias[1]*0.5*(1.0-np.cos(np.radians(Eulers-EULfix2)))   
+# Ecv_tor2=Kbias[2]*0.5*(1.0-np.cos(np.radians(Dihedrals-TORfix2)))  
  if np.any(comIsRand==0): Ecv_com2==np.zeros(nR)
  if np.any(eulerIsRand==0): Ecv_eul2==np.zeros(nR)     # if variable >999 i.e. random sampling then set bias component to zero  
+# for idx in torIsRand: Ecv_tor2[:,idx]=0
+# for idx in torIsFix: Ecv_tor2[:,idx]=0
+# Ecv_com2=np.sum(Ecv_com2,axis=1)
+# Ecv_eul2=np.sum(Ecv_eul2,axis=1)
+# Ecv_tor2=np.sum(Ecv_tor2,axis=1)
 
  if isFlex==0:
   ubias=Ecv_com2+Ecv_eul2  # dont include tor for flex=0
@@ -358,12 +451,25 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
  idx_minE=np.where(engR==np.min(engR))[0][0] # figure out which structure had minE in the distrib of biased energies.
  minE=eng[idx_minE]# this is the unbiased minE that corresponds with min(eng)
  
+# Bias3 - CV's now reletive to just MinE config only - single points 
+
+# Ecv_com3=Kbias[0]*0.5*np.array(Centers[idx_minE]-comfix)**2.0     
+# Ecv_eul3=Kbias[1]*0.5*(1.0-np.cos(np.radians(np.array(Eulers[idx_minE]-eulfix))))   
  Ecv_com3=Ecv_com2[idx_minE]
  Ecv_eul3=Ecv_eul2[idx_minE]
+# Ecv_com3=np.sum(Ecv_com3)
+# Ecv_eul3=np.sum(Ecv_eul3)
+# Ecv_tor3=Ecv_tor2[idx_minE]   
 
+# To obtain biasing energy we will use harmonic spring for centers 
+# and harmonic cosine term for eulers and dihedrals  
 
  eng_fix=eng[eng<0.0]  # make sure energies below a cutoff  (default zero)
 
+# ave_bias = np.mean(Ecv_com+Ecv_eul+Ecv_tor)  # with torsion 
+# ubias=Ecv_com+Ecv_eul+Ecv_com2+Ecv_eul2  #  # ths is where we control which parts contribute towards the bias
+# ubias=Ecv_com2+Ecv_eul2  #  Use the original bias which tethers to the CV
+# ubias_fix=ubias[eng<0.0] 
  if isFlex==0:
   ubias_fix=Ecv_com3+Ecv_eul3 # the values here are only based on the minE structure which should have minE < 0 
   cfg_dihed=dihed
@@ -371,6 +477,7 @@ def read_pack_files(wdir_path,sr,zpr,nmpg,eulvar,comvar,dihed,MC_other,Kbias,eul
   ubias_fix=Ecv_com3+Ecv_eul3+Ecv_tor3
   cfg_dihed=Dihedrals[idx_minE]
 
+# print Ecv_com3,Ecv_eul3,Ecv_tor3,ubias_fix
 
  if len(eng_fix)==0:
   ave_eng,var_eng,ave_bias=0.0,0.0,0.0 # this should reject the move if we didnt sample anything significnt
@@ -396,7 +503,7 @@ def zmat2corr(rootname,targetdir,dfix,shift,nmpg):
   qxyz= np.array(zdat[-2].split()).astype(float)
   cxyz= np.array(zdat[-1].split()).astype(float)
  
-  fhzmat=open(targetdir+'new%i.zmat'%(nm+1),'wb')
+  fhzmat=open(targetdir+'new%i.zmat'%(nm+1),'w')
   fhzmat.write(zdat[0])       # write the title  
   fhzmat.write(zdat[1])       # write the number of atoms 
   tnat=tnat+int(zdat[1])        # update total for final corr.001  
@@ -414,14 +521,14 @@ def zmat2corr(rootname,targetdir,dfix,shift,nmpg):
     fhzmat.write(line)
   fhzmat.close()
  
-  z2xlog = open(targetdir+'coords%i.log'%(nm+1), 'wb')
+  z2xlog = open(targetdir+'coords%i.log'%(nm+1), 'w')
   z2xrun = subprocess.Popen(['zmat2xyz','--q=%.6f,%.6f,%.6f,%.6f'%(qxyz[0],qxyz[1],qxyz[2],qxyz[3]),
                                       '--com=%.6f,%.6f,%.6f'%(cxyz[0],cxyz[1],cxyz[2]),'new%i.zmat'%(nm+1)],cwd=targetdir, stdout=z2xlog)
   z2xrun.wait()
   z2xlog.close()
  
  
- fhcor=open(targetdir+'cor.001','wb')
+ fhcor=open(targetdir+'cor.001','w')
  fhcor.write(' %s\n'%rootname)
  fhcor.write('%5i\n'%tnat)
 
@@ -444,12 +551,13 @@ def zmat2corr(rootname,targetdir,dfix,shift,nmpg):
 
 def run_upack_search(rootname,label1,sgr,zpr,nmpg,label2,MC_invar,MC_other,DenExp,Tfactor,Kbias):
 
+ EnablePackFiles=False # v8.0 hardwired option that enables writing of packfiles   
  isONEMOL=False    #  v5.1 hardwired option which only shifts one molecule each step 
  runPPOPT=False     #  v6.1 hardwired option to run preopt of the cor.001 output from zmat2cor()
- Tfactor=1.0        #  v7 dev hardwired option so that shifts do not scale with temperature becasue using a fitted  model.  
+ Tfactor=1.0        #  v7 dev onwards hardwired option so that shifts do not scale with input Tfactor.  
 
-# UPACK_path='/scratch/ec3688/upack/scripts/'
- UPACK_path='/Users/echanj/Work/upack/scripts/'
+ UPACK_path='/home/ubuntu/upack/scripts/'
+# UPACK_path='/Users/echanj/Work/upack/scripts/'
  mccyc = MC_other[1]
  mcstep = MC_other[2]
  isFlex = MC_other[3]
@@ -469,7 +577,7 @@ def run_upack_search(rootname,label1,sgr,zpr,nmpg,label2,MC_invar,MC_other,DenEx
  # sort out shifts on mc params 
  np.random.seed()   # seeding generator on each process
  if isONEMOL : 
-  molidx=np.random.random_integers(zpr*nmpg) # select the molecule 
+  molidx=np.random.randint(zpr*nmpg) # select the molecule 
   eulshifts=np.zeros(nmpg*zpr*3)
   eulshifts[(molidx-1)*3:molidx*3]=(2.0*np.random.rand(3)-1.0)*Tfactor*MC_invar[1][(molidx-1)*3:molidx*3]
   eulvar= (MC_invar[0][:]+np.round(eulshifts)).astype(int)
@@ -497,7 +605,7 @@ def run_upack_search(rootname,label1,sgr,zpr,nmpg,label2,MC_invar,MC_other,DenEx
  for idx in eulerIsRand: eulvar[idx]=1000
  for idx in comIsRand: comvar[idx]=1000
 
- rseed = np.random.random_integers(100000,300000)+ord(label2)   # adds on a bit to doubly make sure seed is different between baths 
+ rseed = np.random.randint(100000,300000)+ord(label2)   # adds on a bit to doubly make sure seed is different between baths 
 
 #####################
 # deal with torsions
@@ -540,11 +648,11 @@ def run_upack_search(rootname,label1,sgr,zpr,nmpg,label2,MC_invar,MC_other,DenEx
 flex 1
 '''
    
-   fhoutpp=open(wdir_path+"%s.pp" %(rootname),'wb')
+   fhoutpp=open(wdir_path+"%s.pp" %(rootname),'w')
    fhoutpp.write(setpp)
    fhoutpp.close()
    
-   pplog = open(wdir_path+'outpp', 'wb')
+   pplog = open(wdir_path+'outpp', 'w')
    pprun = subprocess.Popen([UPACK_path+'runpp','s',rootname,'cor.001',rootname  ],cwd=wdir_path, stdout=pplog)
    pprun.wait()
    pplog.close()
@@ -605,7 +713,7 @@ emax 40 1000
 ebig 80000
 seed %i
 print 2
-ntrymax 10000
+ntrymax 50000
 '''
 
 #
@@ -643,23 +751,30 @@ ntrymax 10000
  if np.any(comIsRand): str_grvfix = ["%.1f" % c for c in comvar]
  str_grvfix = ' '.join(str_grvfix)
 
+ # these are set to be the same for now
+ Kspr_com=Kbias 
+ Kspr_eul=Kbias
 
- fhout=open(wdir_path+"%s.pa12" %(rootname),'wb')
- fhout.write(setpack12 %(sgr,zpr,nrand,isFlex,DenExp,Kbias[0],Kbias[1],str_eulfix,str_grvfix,rseed))
+ fhout=open(wdir_path+"%s.pa12" %(rootname),'w')
+ fhout.write(setpack12 %(sgr,zpr,nrand,isFlex,DenExp,Kspr_com,Kspr_eul,str_eulfix,str_grvfix,rseed))
  if np.shape(torIsRand)[1] != len(zp_dihed) and isFlex==1: fhout.write("hydfix %s\n"%(str_hydfix))
  fhout.close()
 
- print "SA ramp cycle %i step %i running PACK12 in %s with seed %i" %(mccyc,mcstep,wdir_path,rseed)
- pack12log = open(wdir_path+'out12', 'wb')
+ # exit()
+
+ print ("SA ramp cycle %i step %i running PACK12 in %s with seed %i" %(mccyc,mcstep,wdir_path,rseed))
+ pack12log = open(wdir_path+'out12', 'w')
  pack12run = subprocess.Popen([UPACK_path+'runpa12','s',rootname,rootname  ],cwd=wdir_path, stdout=pack12log)
  pack12run.wait()
  pack12log.close()
 # print "done"
 
+
 # make a backup of the pack.10 and pack.19 for that step 
-# dont do this for FEP calcs 
- copyfile(wdir_path+'pack.10',packfile_path+'bath_%s_cyc_%i_step_%i.pack.10'%(label2,mccyc,mcstep))
- copyfile(wdir_path+'pack.19',packfile_path+'bath_%s_cyc_%i_step_%i.pack.19'%(label2,mccyc,mcstep))
+# dont do this for Diagnostic calcs eg FEP
+ if EnablePackFiles:
+        copyfile(wdir_path+'pack.10',packfile_path+'bath_%s_cyc_%i_step_%i.pack.10'%(label2,mccyc,mcstep))
+        copyfile(wdir_path+'pack.19',packfile_path+'bath_%s_cyc_%i_step_%i.pack.19'%(label2,mccyc,mcstep))
 
 # convert zp_dihed back into original coordinates only for isFlex=0
  if isFlex == 0: 
@@ -730,22 +845,32 @@ def do_ntrytest(wdir_path):
 
 def ptrr_pack12(rootname,label1,sgr,zpr,nmpg,Skiprows,label2,MC_invar,MC_other,Kbias,DenExp,Tfactor,eulvar_hills,comvar_hills,send_end):
 
-  lowEthresh=-104.0
+  lowEthresh=-108.0
   minE=-1000.0
   lowErep=0
+
+
+  # check for runing upack when  debuging
+  # wdir_path,eulvar,comvar,dihed = run_upack_search(rootname,label1,sgr,zpr,nmpg,label2,MC_invar,MC_other,DenExp,Tfactor,Kbias)    
+
+
   while minE < lowEthresh :  # adhoc placed a condition on the minE so that dont get abnormal low since we know the global min    
-   if lowErep != 0 :  print  "detected an abnormally low energy of %.3f !! restarting this step !!"%(minE)
+   if lowErep != 0 :  print  ("detected an abnormally low energy of %.3f in bath %s !! restarting this step !!"%(minE,label2))
+   # print ("exiting for debug purpose ! while minE < lowEthresh ")
+   # exit()
    try:
     ntrytest=True
     while ntrytest:
      wdir_path,eulvar,comvar,dihed = run_upack_search(rootname,label1,sgr,zpr,nmpg,label2,MC_invar,MC_other,DenExp,Tfactor,Kbias)    
      ntry,ntrytest= do_ntrytest(wdir_path)  # return the number of tries and if it satisfied the test 
      if ntry > 0:
-      print "Number of attempts = %i for these minibatch settings in bath %s. restarting !!"%(ntry,label2)
-      print eulvar,comvar,dihed
+      print ("Number of attempts = %i for these minibatch settings in bath %s. restarting !!"%(ntry,label2))
+      print (eulvar,comvar,dihed)
      elif ntry < 0:
-      print "Manual STOP or problem with pack.19 in bath %s. restarting !!"%(label2)
+      print ("Manual STOP or problem with pack.19 in bath %s. restarting !!"%(label2))
      else:
+     #  print ("exiting for debug purpose !")
+     #  exit()
       continue
    
 #       eulvar2, comvar2 and cfg_dihed is not the test coordinate and is read from ecv.18 - we must be careful that they can be transformed it is only used to update each cyle   
@@ -772,7 +897,7 @@ def ptrr_pack12(rootname,label1,sgr,zpr,nmpg,Skiprows,label2,MC_invar,MC_other,K
     for idx in comIsRand: comvar2[idx]=1000
 
    except:
-     print "\n !!! ERROR - there is a problem with PACK12 for %s and bath %s - check manually !!!\n " %(label1,label2)
+     print ("\n !!! ERROR - there is a problem with PACK12 for %s and bath %s - check manually !!!\n " %(label1,label2))
      eulvar,comvar,dihed,ave_eng,var_eng=[0,0,0,0,0]
      pass
 
@@ -783,9 +908,11 @@ def ptrr_pack12(rootname,label1,sgr,zpr,nmpg,Skiprows,label2,MC_invar,MC_other,K
 
 def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_iter_ramp,nrampcyc,Kb,Tinit,Tfini, 
                           eul_init,eul_shift,com_init,com_shift,Tor_fix,Tor_shift,logdir,pngdir,nbaths,isFlex,reFreq,
-                          Kbias,DenExp,metaV_ON,excM_ON):                
+                          Kbias,DenExp,metaV_ON,excM_ON,upd_sk):                
 
   MC_other=np.array([nrand,0,0,isFlex]) 
+
+  # in version 8 com_shift eul_shift and kbias  are now arrays with an entry for each bath
 
   #Tcyc sort out inital variables and Temperatures for the baths per cycle
   Tcyc=[]
@@ -794,9 +921,9 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
   for bath in range(nbaths): 
    Tcyc.append(np.r_[np.linspace(Tinit[bath],Tfini[bath],mc_iter_ramp),np.linspace(Tfini[bath],Tinit[bath],mc_iter_ramp)])
    MC_invar.append(list([eul_init,np.zeros(zpr*nmpg*3),com_init,np.zeros(zpr*nmpg*3),Tor_fix,np.zeros(np.shape(Tor_fix))]))
-   fhout_mclog=open(logdir+'bath_%s_Tin%.3f_Tfi%.3f.log'%(label2s[bath],Tinit[bath],Tfini[bath]),'wb')
+   fhout_mclog=open(logdir+'bath_%s_Tin%.3f_Tfi%.3f.log'%(label2s[bath],Tinit[bath],Tfini[bath]),'w')
    fhout_mclog.write('# bath:%s ,  Tinit(%.3fK):Tfini(%.3fK) , distribution size %i # \n'%(label2s[bath],Tinit[bath],Tfini[bath],nrand))
-   fhout_mclog.write('# cycle, step, T, ave_eng, var_eng, ave_bias, e_diff, acc1, acc2, rej, eulers[zpr*nmpg*3], coms[zpr*nmpg*3], torsions[ntor], minE_test, metaV_test, minE, bias, metaV \n')
+   fhout_mclog.write('# cycle, step, T, ave_eng, var_eng, ave_bias, e_diff, acc1, acc2, rej, eulers[zpr*nmpg*3], coms[zpr*nmpg*3], torsions[ntor], minE_test, metaV_test, minE, bias, metaV, com_shift, eul_shift, kspr \n')
    fhout_mclogs.append(fhout_mclog)
   Tcyc=np.vstack(Tcyc)
 
@@ -824,11 +951,12 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
   jobs = []
   pipe_list = []
   # get inital params for unshifted cv's
-  print "geting inital params for unshifted cv's"
+  print ("geting inital params for unshifted cv's")
+  
   for bath in range(nbaths): 
    recv_end, send_end = multiprocessing.Pipe(False)
    Tfactor=Kb*Tinit[bath]
-   p = multiprocessing.Process(target=ptrr_pack12, args=(rootname,label1,sgr,zpr,nmpg,Skiprows,label2s[bath],MC_invar[bath],MC_other,Kbias,DenExp,Tfactor,eulvar_hills,comvar_hills,send_end,)) 
+   p = multiprocessing.Process(target=ptrr_pack12, args=(rootname,label1,sgr,zpr,nmpg,Skiprows,label2s[bath],MC_invar[bath],MC_other,Kbias[bath],DenExp,Tfactor,eulvar_hills,comvar_hills,send_end,)) 
    jobs.append(p)
    pipe_list.append(recv_end)
    p.start()
@@ -838,15 +966,23 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
 
   result_list = [x.recv() for x in pipe_list]
 
-  # treatment for scaling of shifts 
+  # treatment for scaling of shifts - original parameters for each bath 
   escal0=eul_shift
   cscal0=com_shift
   tscal0=Tor_shift
 
   # declare arrays for shift variables using the scalar variable name
-  eul_shift=np.zeros((nbaths,len(eul_init)))
-  com_shift=np.zeros((nbaths,len(com_init)))
-  Tor_shift=np.zeros((nbaths,len(Tor_fix)))
+  # eul_shift=np.zeros((nbaths,len(eul_init)))
+  # com_shift=np.zeros((nbaths,len(com_init)))
+
+  nel=len(eul_init)
+  nco=len(com_init)
+
+  # declare a shift parameter for every molecule in each bath  
+  eul_shift=np.array(nel*eul_shift).reshape((nel,-1)).transpose()
+  com_shift=np.array(nco*com_shift).reshape((nco,-1)).transpose()
+  Tor_shift=np.zeros((nbaths,len(Tor_fix)))  # set to 0 for rigid body 
+
 
   for bath in range(nbaths): 
     eulvar=result_list[bath][0]  
@@ -875,17 +1011,21 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
  # have to update shift scaling at this point becasue it is bath dependent. its isotropic atm  llikly benefit from aniso treatment  
  # need to be carful here becasue can overlaod the eul_shift and com_shift variable structure - need to clean this as well
  #   escal,cscal = get_shifts(escal0,cscal0,Kb*Tinit[bath],Kbias[0]) 
-    escal,cscal = escal0,cscal0 # bypassing scale function
+    escal,cscal = escal0,cscal0 # bypassing scale function , plan to re-implement at later stage
  
+    # just duplicate of earlier code - ineffiecnt but works can change later !!! 
+#    eul_shift[bath,:]=(np.zeros((len(eul_init)))+np.round(escal)).astype(float)  # this should be a float -see run_upack_search()
+#    com_shift[bath,:]=(np.zeros((len(com_init)))+cscal).astype(float)  
+#    Tor_shift[bath,:]=(np.zeros((len(Tor_fix)))+tscal0).astype(float)    # not implemented yet for rigid body  
 
-    eul_shift[bath,:]=eul_shift[bath,:]+np.round(escal)  # this should be a float -see run_upack_search()
-    com_shift[bath,:]=com_shift[bath,:]+cscal
-    Tor_shift[bath,:]=Tor_shift[bath,:]+tscal0   # not implemented yet for rigid body  
+#    eul_shift[bath,:]=eul_shift[bath,:]+np.round(escal)  # this should be a float -see run_upack_search()
+#    com_shift[bath,:]=com_shift[bath,:]+cscal
+#    Tor_shift[bath,:]=Tor_shift[bath,:]+tscal0   # not implemented yet for rigid body  
 
 #    print  "initial Euler,COM and Tor shifts on bath %s at %.3f with Tfactor %.3f" %(label2s[bath],Tinit[bath],Kb*Tinit[bath])
 #    print  eul_shift*(Kb*Tinit[bath]),com_shift*(Kb*Tinit[bath]),Tor_shift*(Kb*Tinit[bath])
-    print  "initial Euler,COM and Tor shifts on bath %s at %.3f with Tfactor %.3f --- final T scaling eulers rounded to nint " %(label2s[bath],Tinit[bath],Kb*Tinit[bath])
-    print  eul_shift[bath],com_shift[bath],Tor_shift[bath]
+    print(  "initial Euler,COM and Tor shifts on bath %s at %.3f with Tfactor %.3f --- final T scaling eulers rounded to nint " %(label2s[bath],Tinit[bath],Kb*Tinit[bath]))
+    print(  eul_shift[bath],com_shift[bath],Tor_shift[bath])
 
 #   in version 7 updating shift array on fly  be carful to duplicate array when assigning to parrelel baths
     MC_invar[bath]=[eulvar,eul_shift[bath],comvar,com_shift[bath],dihed,Tor_shift[bath]]
@@ -894,11 +1034,11 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
   eulvar_hills.append(np.vstack(eulvar_old).copy()) # trick is need to use the .copy() function to make sure not just storing pointer to current object
   comvar_hills.append(np.vstack(comvar_old).copy())
 
-  print "End initializing baths"
+  print( "End initializing baths")
   
   accept_first_move=True
 
-  print "Begin Parallel Tempering"
+  print ("Begin Parallel Tempering")
   # contiune SA
   acc1=np.zeros(nbaths)
   acc2=np.zeros(nbaths)
@@ -947,7 +1087,7 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
             minE_old[rxch0],minE_old[rxch1]=minE_old[rxch1],minE_old[rxch0]    # and the minE
             metaV_old[rxch0],metaV_old[rxch1]=metaV_old[rxch1],metaV_old[rxch0]    
         
-            print "acc1 exchange at cyc %i step %i between baths %i(T=%.3f) : %i(T=%.3f) with dE %.3f " %(cyc,step,rxch0,Tcyc[rxch0,step],rxch1,Tcyc[rxch1,step],deltaU) 
+            print ("acc1 exchange at cyc %i step %i between baths %i(T=%.3f) : %i(T=%.3f) with dE %.3f " %(cyc,step,rxch0,Tcyc[rxch0,step],rxch1,Tcyc[rxch1,step],deltaU) )
             # print "debug metaV for baths T=%.3f and T=%.3f was %.3f and %.3f " %(Tcyc[rxch0,step],Tcyc[rxch1,step],metaV_old[rxch0],metaV_old[rxch1]) 
             
         # if deltaBeta*deltaU is positive, accept with the corresponding probability    
@@ -961,7 +1101,7 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
             minE_old[rxch0],minE_old[rxch1]=minE_old[rxch1],minE_old[rxch0]    # and the minE
             metaV_old[rxch0],metaV_old[rxch1]=metaV_old[rxch1],metaV_old[rxch0]    
         
-            print "acc2 exchange at cyc %i step %i between baths %i(T=%.3f) : %i(T=%.3f) with dE %.3f, dBet %.3f and expProb %.3f  " %(cyc,step,rxch0,Tcyc[rxch0,step],rxch1,Tcyc[rxch1,step],deltaU,deltaBeta,np.exp(deltaBeta*deltaU)) 
+            print ("acc2 exchange at cyc %i step %i between baths %i(T=%.3f) : %i(T=%.3f) with dE %.3f, dBet %.3f and expProb %.3f  " %(cyc,step,rxch0,Tcyc[rxch0,step],rxch1,Tcyc[rxch1,step],deltaU,deltaBeta,np.exp(deltaBeta*deltaU)) )
            # print "debug metaV for baths T=%.3f and T=%.3f was %.3f and %.3f " %(Tcyc[rxch0,step],Tcyc[rxch1,step],metaV_old[rxch0],metaV_old[rxch1]) 
         # else :
             # print "no exchange at cyc %i step %i between baths %i(T=%.3f) : %i(T=%.3f) with dE %.3f, dBet %.3f and expProb %.3f  " %(cyc,step,rxch0,Tcyc[rxch0,step],rxch1,Tcyc[rxch1,step],deltaU,deltaBeta,np.exp(deltaBeta*deltaU)) 
@@ -977,7 +1117,7 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
     for bath in range(nbaths): 
       recv_end, send_end = multiprocessing.Pipe(False)
       Tfactor=Kb*Tcyc[bath,step]
-      p = multiprocessing.Process(target=ptrr_pack12, args=(rootname,label1,sgr,zpr,nmpg,Skiprows,label2s[bath],MC_invar[bath],MC_other,Kbias,DenExp,Tfactor,eulvar_hills,comvar_hills,send_end,)) 
+      p = multiprocessing.Process(target=ptrr_pack12, args=(rootname,label1,sgr,zpr,nmpg,Skiprows,label2s[bath],MC_invar[bath],MC_other,Kbias[bath],DenExp,Tfactor,eulvar_hills,comvar_hills,send_end,)) 
       jobs.append(p)
       pipe_list.append(recv_end)
       p.start()
@@ -1038,7 +1178,7 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
        minE_old[bath]=minE   
        metaV_old[bath]=metaV   
       elif  accept_first_move and tostep==1 : 
-       print "accepted first shift"
+       print ("accepted first shift")
        acc2[bath]+=1
        MC_invar[bath]=[eulvar,eul_shift[bath],comvar,com_shift[bath],dihed,Tor_shift[bath]]
        eulvar_old[bath]=eulvar
@@ -1075,7 +1215,60 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
       fhout_mclogs[bath].write('%.6f ' %(minE_old[bath]))          # this is for the current state v5.0
       fhout_mclogs[bath].write('%.6f ' %(bias_old[bath]))         # this is for the current state
       fhout_mclogs[bath].write('%.6f ' %(metaV_old[bath]))         # this is for the current state
+
+      fhout_mclogs[bath].write('%.3f ' %(com_shift[bath,0]))         # extra info for updating meta-params
+      fhout_mclogs[bath].write('%3i ' %(eul_shift[bath,0]))         # extra info for updating meta-params
+      fhout_mclogs[bath].write('%.3f ' %(Kbias[bath]))         # extra info for updating meta-params
+
       fhout_mclogs[bath].write('\n')
+
+
+
+      # we need this for next section on updates 
+
+ 
+      # the isofunc decides how much the lr is step-wise attenuated  by the Tfactor
+      # 
+      Tfactor=Kb*Tinit[bath]
+      gamma=2.0   #  set higher to converge to 1.0 faster i.e low temp will change at a slower rate per step 
+      isofunc=(gamma*Tfactor)/(1.0+gamma*Tfactor)   # this si the same function as langmuir isotherm
+      
+
+      # update shifts in each bath based on the aceptance 
+      update_shifts = True if int(upd_sk[0])==1 else False  # hardwire switch
+      slr=float(upd_sk[2])
+      if ((step%2 == 0) and (step != 0) and (update_shifts)) : 
+            if float(rej[bath])/tostep > 0.5:
+                if eul_shift[bath,0] > np.ceil(escal[bath]*slr*Tfactor) : eul_shift[bath,:] = np.floor(eul_shift[bath,:] * (1.0 - slr*isofunc))
+                if com_shift[bath,0] > cscal[bath]*slr*Tfactor : com_shift[bath,:] *= (1.0 - slr*isofunc)
+            else:
+                eul_shift[bath,:] = np.ceil(eul_shift[bath,:] * (1.0 + slr*isofunc))
+                com_shift[bath,:] *=  (1.0 + slr*isofunc)        # only applying lr on com for testing
+
+      #   this way of incremting shift values works but is slow to converge  
+      #    the above algo is modified in simialr manner to treatment of kspr see if it will converge faster 
+
+      #     if float(rej[bath])/tostep > 0.5:
+      #         if eul_shift[bath,0] > 1: eul_shift[bath,:]=eul_shift[bath,:] - 1.0
+      #         if com_shift[bath,0] > cscal[bath]*lr: com_shift[bath,:]=com_shift[bath,:]-cscal[bath]*lr  
+      #     else:
+      #         eul_shift[bath,:]=eul_shift[bath,:]+1.0
+      #         com_shift[bath,:]=com_shift[bath,:]+cscal[bath]*lr        # only applying lr on com for testing
+
+            print("bath:", bath , "rejection ratio: ", float(rej[bath])/tostep, " adjusted shifts :",  eul_shift[bath], com_shift[bath])
+
+      # rescale kspr in each bath based on the aceptance 
+      update_kspr = True if int(upd_sk[1])==1 else False  # hardwire switch
+      klr=float(upd_sk[3])  # increment by some percent of Tfactor
+      if ((step%2 == 1) and (step > 1) and update_kspr) : 
+            if float(rej[bath])/tostep > 0.5:
+                 Kbias[bath] *= (1 - klr*isofunc) 
+            else:
+                 Kbias[bath] *= (1 + klr*isofunc) 
+
+            print("bath:", bath , "rejection ratio: ", float(rej[bath])/tostep, " adjusted kspr :",  Kbias[bath])
+     
+
 
   # updte hills list at the end of every step with bath variables as lists    
     eulvar_hills.append(np.vstack(eulvar_old).copy())    # trick is need to use the .copy() function to make sure not just storing pointer to current object
@@ -1095,23 +1288,21 @@ def run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_i
 
 
 
-def main():
+def EVCCPMC(fin):
 
- from sys import argv
- script, fin = argv
 
  fhin = open(fin,'r')
  in_vars = fhin.readlines()
  in_vars= [re.sub(r'("(?:[^"]+|(?<=\\)")*")|#[^\n]*','',line) for line in in_vars] # get rid of any commentry after '#'
  fhin.close()
 
- print "reading input varibles from %s" %fin 
+ print ("reading input varibles from %s" %fin )
 
  rootname=in_vars[0].split()[0]
  label1=in_vars[0].split()[1]
  sgr=in_vars[0].split()[2]
 
- print "rootname:%s label1:%s spacegroup:%s" %(rootname,label1,sgr)  
+ print ("rootname:%s label1:%s spacegroup:%s" %(rootname,label1,sgr))  
  
  zpr,nrand,natoms,Skiprows,nmpg=np.array(in_vars[1].split()).astype(int)
  mc_iter_ramp,nrampcyc=np.array(in_vars[2].split()).astype(int)
@@ -1120,12 +1311,20 @@ def main():
  eul_init=np.array(in_vars[5].split()).astype(int)
  com_init=np.array(in_vars[6].split()).astype(float)
  Tor_fix=np.array(in_vars[7].split()).astype(float)
- e_sv,c_sv,t_sv =np.array(in_vars[8].split()).astype(float)
+ init_shifts = np.array(in_vars[8].split()).astype(float)  # all shifts to be read in  
 
- # modified for development version 7
- eul_shift=e_sv 
- com_shift=c_sv 
- Tor_shift=t_sv 
+ # modified for development version 8 - parameters as lists
+ e_sv = init_shifts[:len(Tinit)] 
+ c_sv = init_shifts[len(Tinit):-1] 
+ t_sv = init_shifts[-1]
+
+ eul_shift=list(e_sv) 
+ com_shift=list(c_sv) 
+ Tor_shift=float(t_sv) 
+
+# print (type(eul_shift))
+# print (type(com_shift))
+# print (type(Tor_shift))
 
  # eul_shift=(np.zeros((len(eul_init)))+e_sv).astype(float)  
  # com_shift=(np.zeros((len(com_init)))+c_sv).astype(float)  
@@ -1133,18 +1332,22 @@ def main():
 
  isFlex =int(in_vars[11].split()[0])  # do flexible search option - will automaticall render dihdral as dummy var 
  reFreq =float(in_vars[12].split()[0])  # replica exchange frequency 
- Kbias =np.array(in_vars[12].split()[1:4]).astype(float)  # biasing force consts [com euler dihed] 
- DenExp =float(in_vars[12].split()[4])  # expected density
+ Kbias =np.array(in_vars[12].split()[1:len(Tinit)+1]).astype(float)  # biasing force consts [one for each bath] 
+ DenExp =float(in_vars[12].split()[-1])  # expected density
  metaV_ON =int(in_vars[13].split()[0])  # switch for metaV
  excM_ON  =int(in_vars[13].split()[1])  # switch for multiple exchanges per step
+ upd_sk  = in_vars[14].split()  # switchs and lr for updating meta params
  
-# hardwired  variables 
+ print (Kbias)
+ print (upd_sk)
+
+ # hardwired  variables 
  Kb=0.0083144621  # bolzman factor in kJ/(mol.K) 
  label2s=['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q'] # label of parellel chains perfromed in seperate folders 
  nbaths=np.shape(Tinit)[0]
 
- print "there should be no greater than %i configs generated from this run" %(nrand*nbaths*mc_iter_ramp*2*nrampcyc)
- print "there are %i baths" %nbaths
+ print ("there should be no greater than %i configs generated from this run" %(nrand*nbaths*mc_iter_ramp*2*nrampcyc))
+ print ("there are %i baths" %nbaths)
 
 # refresh working folders for each bath
  for bath in range(nbaths): 
@@ -1153,11 +1356,25 @@ def main():
  extime = time.time()
  print("start  time for workflow execution  --- %s seconds ----" % ((time.time() - extime)))
 
+
  run_PT_baths(rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_iter_ramp,nrampcyc,Kb,Tinit,Tfini,   
               eul_init,eul_shift,com_init,com_shift,Tor_fix,Tor_shift,logdir,pngdir,nbaths,isFlex,reFreq,
-              Kbias,DenExp,metaV_ON,excM_ON)                     
+              Kbias,DenExp,metaV_ON,excM_ON,upd_sk)                     
+
+ # below was for degugging  
+ #return (rootname,label1,label2s,sgr,Skiprows,nrand,natoms,zpr,nmpg,mc_iter_ramp,nrampcyc,Kb,Tinit,Tfini,   
+ #             eul_init,eul_shift,com_init,com_shift,Tor_fix,Tor_shift,logdir,pngdir,nbaths,isFlex,reFreq,
+ #             Kbias,DenExp,metaV_ON,excM_ON)                     
 
  print("end  time for workflow execution  --- %s seconds ----" % ((time.time() - extime)))
+
+
+def main():
+    
+ from sys import argv
+ script, fin = argv
+    
+ EVCCPMC(fin)
 
 if __name__ == "__main__":
     main()
